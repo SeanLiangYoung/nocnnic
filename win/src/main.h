@@ -44,6 +44,6 @@ const TCHAR *cMemo_L2=L"若您曾经导入私人证书，请不要继续";
 
 const TCHAR *cMemo_L3=L"建议打开“了解更多”获取足够信息后再使用";
 
-const TCHAR *cMemo_L4=L"版本：V for Vendetta(X50)";
+const TCHAR *cMemo_L4=L"版本：V for Vendetta(X50.1)";
 
 // END OF FILE

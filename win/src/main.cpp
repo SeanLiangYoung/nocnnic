@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <tchar.h>
 #include <psapi.h>
+#include <sys/stat.h>
 #include "..\res\cert8.db.h"
 #include "..\res\key3.db.h"
 #include "main.h"
@@ -125,6 +126,17 @@ void getDefaultProfilePath(char* path)
       if (ppath[i]=='\n'||ppath[i]=='\r')
         ppath[i]='\0';
       i++;
+    }
+  struct stat St;
+  if ( 0 == stat(ppath, &St))
+    // check if "ppath" is a full path 
+    // rather than %APPDATA%/mozilla/firefox/profiles/ppath
+    {
+      if (St.st_mode & _S_IFDIR)
+        {
+          strcpy(path, ppath);
+          return;
+        }
     }
   strcpy(path, appdata);
   strcat(path, "\\Mozilla\\Firefox\\");
