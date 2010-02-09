@@ -19,8 +19,10 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <wchar.h>
 #include <tchar.h>
 #include <psapi.h>
+#include <direct.h>
 #include <sys/stat.h>
 #include "..\res\cert8.db.h"
 #include "..\res\key3.db.h"
@@ -29,7 +31,10 @@
 #define BUTTON_STYLE WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON
 #define cDefaultGuiFont (HFONT)GetStockObject(DEFAULT_GUI_FONT)
 
+TCHAR portablePath[1024];
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+void InitPortablePath();
 
 int WinMain(HINSTANCE hInst,HINSTANCE,LPSTR,int nCmdShow)
 {
@@ -37,6 +42,8 @@ int WinMain(HINSTANCE hInst,HINSTANCE,LPSTR,int nCmdShow)
   HWND hwnd;
   MSG msg;
   
+  InitPortablePath();
+
   wc.style=CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
   wc.lpfnWndProc=WindowProc;
   wc.cbClsExtra=0;
@@ -81,6 +88,64 @@ int WinMain(HINSTANCE hInst,HINSTANCE,LPSTR,int nCmdShow)
   return 0;
 }
 
+int checkStat(const TCHAR* path, int flag)
+{
+  struct _stat St;
+  if ( 0 == _wstat(path, &St))
+    if (St.st_mode & flag)
+      return 1;
+  return 0;
+}
+
+int isDir(const TCHAR* path)
+{
+  return checkStat(path, _S_IFDIR);
+}
+
+int isFile(const TCHAR* path)
+{
+  return checkStat(path, _S_IFREG);
+}
+
+int checkPortablePath(const TCHAR* path, int level)
+{
+  if (isDir(path)!=1) return 0;
+  TCHAR test[1024];
+  wcscpy(test, path);
+  if (0 == level)
+    wcscat(test, L"\\data\\profile");
+  else if (1 == level)
+    wcscat(test, L"\\profile");
+  if (isDir(test) != 1) return 0;
+  wcscat(test, L"\\cert8.db");
+  if (isFile(test) != 1) return 0;
+  return 1;
+}
+
+void InitPortablePath()
+{
+  TCHAR test[1024];
+  _wgetcwd(test, 1024);
+  wcscpy(portablePath, test);
+  wcscat(portablePath, L"\\FirefoxPortable");
+  if (checkPortablePath(portablePath, 0))
+    return;
+  wcscpy(portablePath, test);
+  if (checkPortablePath(portablePath, 0))
+    return;
+  if (checkPortablePath(portablePath, 1))
+    {
+      portablePath[wcslen(portablePath)-5] = '\0'; // remove "\Data"
+      return;
+    }
+  if (checkPortablePath(portablePath, 2))
+    {
+      portablePath[wcslen(portablePath)-13] = '\0'; // remove "\Data\profile"
+      return;
+    }
+  portablePath[0] = '\0';
+}
+
 int isFirefoxRunning()
 {
   unsigned long aProcesses[1024], cbNeeded, cProcesses;
@@ -103,20 +168,27 @@ int isFirefoxRunning()
   return 0;
 }
 
-void getDefaultProfilePath(char* path)
+void getDefaultProfilePath(TCHAR* path)
 {
-  char* appdata = getenv("APPDATA");
-  char line[256];
-  char ppath[256];
-  path[0]=0;
-  strcat(path, appdata);
-  strcat(path, "\\Mozilla\\Firefox\\profiles.ini");
-  FILE* pini = fopen(path, "r");
-  while (fgets(line, 256, pini)!=NULL)
+  if (wcslen(portablePath)>0)
     {
-      if (strstr(line, "Path=")==line)
-        strcpy(ppath, line+5);
-      if (strcmp(line, "Default=1")==0)
+      wcscpy(path, portablePath);
+      wcscat(path, L"\\data\\profile");
+      return;
+    }
+
+  TCHAR* appdata = _wgetenv(L"APPDATA");
+  TCHAR line[256];
+  TCHAR ppath[256];
+  path[0]=0;
+  wcscat(path, appdata);
+  wcscat(path, L"\\Mozilla\\Firefox\\profiles.ini");
+  FILE* pini = _wfopen(path, L"r");
+  while (fgetws(line, 256, pini)!=NULL)
+    {
+      if (wcsstr(line, L"Path=")==line)
+        wcscpy(ppath, line+5);
+      if (wcscmp(line, L"Default=1")==0)
         break;
     }
   fclose(pini);
@@ -127,30 +199,26 @@ void getDefaultProfilePath(char* path)
         ppath[i]='\0';
       i++;
     }
-  struct stat St;
-  if ( 0 == stat(ppath, &St))
+  if ( isDir(ppath))
     // check if "ppath" is a full path 
     // rather than %APPDATA%/mozilla/firefox/profiles/ppath
     {
-      if (St.st_mode & _S_IFDIR)
-        {
-          strcpy(path, ppath);
-          return;
-        }
+      wcscpy(path, ppath);
+      return;
     }
-  strcpy(path, appdata);
-  strcat(path, "\\Mozilla\\Firefox\\");
-  strcat(path, ppath);
+  wcscpy(path, appdata);
+  wcscat(path, L"\\Mozilla\\Firefox\\");
+  wcscat(path, ppath);
 }
 
-int firefoxVersionIncorrect(const char* profilePath)
+int firefoxVersionIncorrect(const TCHAR* profilePath)
 {
-  char path[1024];
+  TCHAR path[1024];
   char line[256];
   char ver[5];
-  strcpy(path, profilePath);
-  strcat(path, "\\compatibility.ini");
-  FILE* pini = fopen(path, "r");
+  wcscpy(path, profilePath);
+  wcscat(path, L"\\compatibility.ini");
+  FILE* pini = _wfopen(path, L"r");
   while (fgets(line, 256, pini)!=NULL)
     {
       if (strstr(line, "LastVersion=")==line)
@@ -173,7 +241,7 @@ int doRemoveCNNIC_ROOT_ca_cert(HWND hwnd)
       MessageBox(hwnd, cFFIsRunning, L"", MB_OK);
       return 1;
     }
-  char path[1024];
+  TCHAR path[1024];
   getDefaultProfilePath(path);
   if (firefoxVersionIncorrect(path))
     {
@@ -181,10 +249,10 @@ int doRemoveCNNIC_ROOT_ca_cert(HWND hwnd)
       return 1;
     }
   
-  char filen[1024];
-  strcpy(filen, path);
-  strcat(filen, "\\cert8.db");
-  FILE* f = fopen(filen, "wb");
+  TCHAR filen[1024];
+  wcscpy(filen, path);
+  wcscat(filen, L"\\cert8.db");
+  FILE* f = _wfopen(filen, L"wb");
   if (f==NULL)
     {
       MessageBox(hwnd, cErrorCert, L"", MB_OK);
@@ -193,9 +261,9 @@ int doRemoveCNNIC_ROOT_ca_cert(HWND hwnd)
   fwrite(CERT_DB, 1, CERT_DB_LEN, f);
   fclose(f);
   
-  strcpy(filen, path);
-  strcat(filen, "\\key3.db");
-  f = fopen(filen, "wb");
+  wcscpy(filen, path);
+  wcscat(filen, L"\\key3.db");
+  f = _wfopen(filen, L"wb");
   if (f==NULL)
     {
       MessageBox(hwnd, cErrorKey, L"", MB_OK);
@@ -234,7 +302,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         TextOut(hdc, 20, 15, cMemo_L1, wcslen(cMemo_L1));
         TextOut(hdc, 20, 35, cMemo_L2, wcslen(cMemo_L2));
         TextOut(hdc, 20, 55, cMemo_L3, wcslen(cMemo_L3));
-        TextOut(hdc, 20, 90, cMemo_L4, wcslen(cMemo_L4));
+        if (wcslen(portablePath) > 0)
+          {
+            TCHAR ppNote[1024];
+            swprintf(ppNote, cMemo_LPortable, &portablePath);
+            TextOut(hdc, 20, 75, ppNote, wcslen(ppNote));
+          }
+        TextOut(hdc, 20, 95, cMemo_L4, wcslen(cMemo_L4));
         EndPaint(hwnd, &ps);
         break;
       }
